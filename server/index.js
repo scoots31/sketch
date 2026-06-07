@@ -4,13 +4,16 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { initSchema } from './db.js'
 import { sketches } from './routes/sketches.js'
+import { agent } from './routes/agent.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
-app.use(express.json({ limit: '10mb' })) // tldraw snapshots can be sizeable
+// Capture the raw body so agent requests can be HMAC-verified over the exact bytes.
+app.use(express.json({ limit: '10mb', verify: (req, _res, buf) => { req.rawBody = buf.toString('utf8') } }))
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
-app.use('/api/sketches', sketches)
+app.use('/api/sketches', sketches) // human/browser — open for v1
+app.use('/api/agent', agent) // agents — shared-secret auth required
 
 // In production the same service serves the built client (single Render web service).
 const dist = join(__dirname, '..', 'dist')
