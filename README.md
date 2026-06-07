@@ -21,12 +21,35 @@ agents add to the same sketch across sessions.
 4. **Agent read/write** — agents read and draw onto the durable record (shared-secret auth)
 5. **Multiplayer** — real-time co-drawing, broadcast + collision
 
-## Run
+## Run (local)
+
+Two processes in dev — the API server and the Vite client:
 
 ```
 npm install
-npm run dev   # http://localhost:5190
+createdb sketch_dev          # one-time, local Postgres
+npm run dev:server           # API on :3000 (applies schema on boot)
+npm run dev                  # client on :5190, proxies /api → :3000
 ```
+
+## Deploy (Render — single web service)
+
+- **Service:** Web Service, named `sketch-app` (→ sketch-app.onrender.com)
+- **Build command:** `npm install && npm run build`
+- **Start command:** `npm start` (Express serves the built client + the API on one port)
+- **Database:** a Render Postgres of its own (modular — Sketch does not share han-solo's DB)
+- **Env:** `DATABASE_URL` = the Render Postgres Internal Database URL. `PORT` is automatic.
+
+## API
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET    | `/api/sketches`            | list (no document blobs) |
+| POST   | `/api/sketches`            | create `{name}` → `{id}` |
+| GET    | `/api/sketches/:id`        | open — full record + document |
+| PUT    | `/api/sketches/:id/document` | save `{document}` (the heartbeat) |
+| PATCH  | `/api/sketches/:id`        | rename `{name}` |
+| DELETE | `/api/sketches/:id`        | delete |
 
 ## Auth (designed, proven on han-solo bench, not yet wired here)
 
