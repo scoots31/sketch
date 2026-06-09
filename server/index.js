@@ -1,10 +1,14 @@
 import express from 'express'
+import { createServer } from 'node:http'
+import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { WebSocketServer } from 'ws'
 import { initSchema } from './db.js'
 import { sketches } from './routes/sketches.js'
 import { agent } from './routes/agent.js'
+import { handleSocketConnection } from './rooms.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -28,10 +32,34 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: 'server error', detail: err.message })
 })
 
+// Multiplayer: a WebSocket per sketch room, on the same HTTP server. tldraw's
+// useSync connects to wss://host/connect/<sketchId>?sessionId=<id>; we route the
+// upgrade to that sketch's room. Until the client uses sync (next step), nothing
+// connects here, so this is dormant capability — the live save path is unchanged.
+const server = createServer(app)
+const wss = new WebSocketServer({ noServer: true })
+
+server.on('upgrade', (req, socket, head) => {
+  const url = new URL(req.url, 'http://localhost')
+  const match = url.pathname.match(/^\/connect\/([^/]+)$/)
+  if (!match) {
+    socket.destroy()
+    return
+  }
+  const sketchId = match[1]
+  const sessionId = url.searchParams.get('sessionId') || randomUUID()
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    handleSocketConnection(ws, sketchId, sessionId).catch((e) => {
+      console.error('[sketch] ws connect failed:', sketchId, e.message)
+      ws.close()
+    })
+  })
+})
+
 const port = process.env.PORT || 3000
 initSchema()
   .then(() => {
-    app.listen(port, () => console.log(`[sketch] listening on ${port}`))
+    server.listen(port, () => console.log(`[sketch] listening on ${port}`))
   })
   .catch((e) => {
     console.error('[sketch] failed to init schema:', e.message)

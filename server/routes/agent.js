@@ -1,7 +1,8 @@
 import { Router } from 'express'
 import { query } from '../db.js'
 import { requireAgentAuth } from '../auth.js'
-import { drawShapes } from '../shapes.js'
+import { drawShapes, buildRecords } from '../shapes.js'
+import { getActiveRoom, flushRoom } from '../rooms.js'
 
 // Agent-facing API. Every route requires shared-secret auth and respects the
 // privacy flag: agents see and touch non-private sketches only ("watch
@@ -88,9 +89,44 @@ agent.post('/sketches/:id/draw', async (req, res, next) => {
       return res.status(403).json({ auth: 'rejected', reason: 'sketch is private' })
     }
 
+    const author = req.agentId
+    const room = getActiveRoom(req.params.id)
+
+    // LIVE path: a human has this sketch open. Inject the records into the live
+    // room so they appear on the open canvas instantly, then flush to Postgres
+    // BEFORE returning — when this call returns, the shapes are durable on disk,
+    // not just held in memory (the durability guarantee).
+    if (room) {
+      let built
+      try {
+        const snap = room.getCurrentSnapshot()
+        const store = {}
+        for (const d of snap.documents) store[d.state.id] = d.state
+        built = buildRecords(store, specs, author)
+      } catch (e) {
+        return res.status(400).json({ error: e.message })
+      }
+      await room.updateStore((store) => {
+        for (const rec of built.records) store.put(rec)
+      })
+      await flushRoom(req.params.id)
+      const shapeCount = room
+        .getCurrentSnapshot()
+        .documents.filter((d) => d.state?.typeName === 'shape').length
+      return res.json({
+        id: req.params.id,
+        by: author,
+        live: true,
+        shapes_added: built.digest.length,
+        shape_count: shapeCount,
+        shapes: built.digest,
+      })
+    }
+
+    // FALLBACK path: nobody connected — read-modify-write the durable blob.
     let result
     try {
-      result = drawShapes(guard.rows[0].document, specs)
+      result = drawShapes(guard.rows[0].document, specs, author)
     } catch (e) {
       return res.status(400).json({ error: e.message })
     }
@@ -103,7 +139,8 @@ agent.post('/sketches/:id/draw', async (req, res, next) => {
     res.json({
       id: rows[0].id,
       updated_at: rows[0].updated_at,
-      by: req.agentId,
+      by: author,
+      live: false,
       shapes_added: result.digest.length,
       shape_count: result.shapeCount,
       shapes: result.digest,
