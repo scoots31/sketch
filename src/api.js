@@ -20,12 +20,8 @@ export const createSketch = (name) =>
 
 export const loadSketch = (id) => fetch(`${BASE}/${id}`).then(json)
 
-export const saveSketch = (id, document) =>
-  fetch(`${BASE}/${id}/document`, {
-    method: 'PUT',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ document }),
-  }).then(json)
+// saveSketch removed (gate work, 2026-06-11): the sync client never blob-saves —
+// the live room owns persistence. The route itself is room-guarded server-side.
 
 export const renameSketch = (id, name) =>
   fetch(`${BASE}/${id}`, {

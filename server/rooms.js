@@ -19,6 +19,7 @@
 import { TLSocketRoom } from '@tldraw/sync-core'
 import { createTLSchema } from '@tldraw/tlschema'
 import { query } from './db.js'
+import { buildRecords } from './shapes.js'
 
 // Default tldraw schema (includes geo and the rest) — matches what the browser
 // and drawShapes() produce, since both run the same tldraw 3.15.6 defaults.
@@ -115,6 +116,60 @@ export async function getOrCreateRoom(sketchId) {
   }
 
   return room
+}
+
+// The live-draw failure contract (gate work, 2026-06-11): success means the
+// shapes are visible AND durable; failure means NEITHER — the injection is
+// rolled back so nothing unsaved stays on anyone's canvas. Retry-safe both ways.
+export class LiveDrawRollback extends Error {
+  constructor(sketchId, flushError) {
+    super(
+      'The drawing did not save. It appeared on the canvas for a moment and ' +
+      'was removed so nothing unsaved stays visible. Nothing was lost from ' +
+      'before. It is safe to draw again.'
+    )
+    this.name = 'LiveDrawRollback'
+    this.sketchId = sketchId
+    this.flushError = flushError?.message || String(flushError)
+  }
+}
+
+// Inject agent-built records into a sketch's LIVE room and make them durable
+// before returning. Returns null when no room is resident (caller falls back
+// to the blob path). Throws spec-validation errors before touching the room;
+// throws LiveDrawRollback when the flush fails AFTER injection — in which case
+// exactly the injected records have been removed again (a brief flicker on
+// open canvases at worst) and a greppable rollback line is logged.
+export async function applyLiveDraw(sketchId, specs, author) {
+  const entry = rooms.get(sketchId)
+  if (!entry) return null
+  const room = entry.room
+
+  const snap = room.getCurrentSnapshot()
+  const store = {}
+  for (const d of snap.documents) store[d.state.id] = d.state
+  const built = buildRecords(store, specs, author) // throws on bad spec
+
+  await room.updateStore((s) => {
+    for (const rec of built.records) s.put(rec)
+  })
+  try {
+    await persist(sketchId)
+  } catch (e) {
+    await room.updateStore((s) => {
+      for (const rec of built.records) s.delete(rec.id)
+    })
+    console.error(
+      `[sketch] live-draw rollback: sketch=${sketchId} ` +
+      `records=[${built.records.map((r) => r.id).join(',')}] flush_error=${e.message}`
+    )
+    throw new LiveDrawRollback(sketchId, e)
+  }
+
+  const shapeCount = room
+    .getCurrentSnapshot()
+    .documents.filter((d) => d.state?.typeName === 'shape').length
+  return { built, shapeCount }
 }
 
 // Wire a freshly-upgraded WebSocket into its sketch's room.
