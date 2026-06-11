@@ -100,5 +100,20 @@ rotation sitting (it's the same theme: who may touch what, with which secret).
 4. Deploy to Sketch's Render service; verify the full chat-integrated loop in a
    FOCUSED real browser (preview browsers throttle background tabs and drop the
    live socket — recorded as a team lesson, learned the hours-long way).
-5. Then SL-003 (two humans, concurrent edits) confronts multi-client
-   reliability head-on.
+5. Then the locked slice map continues (per the full 8ddb0dd5 session record,
+   which supersedes the close-out's mislabel): **SL-003 = Scott + Ren
+   co-editing** (concurrent-edit integrity — Ren's "breaks the whole thing if
+   it's not right"), SL-004 = Ted joins (second human), SL-005 = save & exit
+   (shared-session teardown, no lingering state).
+
+## The locked product frame (carries over everything technical above)
+
+The product is NOT generic multiplayer. It is: Scott chats with Ren; opening a
+sketch from that conversation means she is ALREADY THERE — present and coherent
+with the chat context (the chat-first ritual is load-bearing, not etiquette).
+Language is "Ren is in this room," never "summon Ren." Scott draws, she sees
+it; the conversation flows onto the canvas; her strokes land live with her
+name. Ted is a human in the room, nothing special. The session 8ddb0dd5 record
+holds the full anatomy of how the build drifted to "two browsers syncing" and
+the reset that fixed it: confirm the felt experience first, scope smallest,
+never present plumbing as the experience.
