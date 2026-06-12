@@ -47,7 +47,7 @@ function plainText(rt) {
 // One geo shape record, every prop matching what tldraw 3.15 stores for a
 // browser-drawn shape (verified against a real snapshot). Get this set wrong and
 // tldraw's validator rejects the whole document — so it mirrors ground truth.
-function geoRecord(spec, pageId, index) {
+function geoRecord(spec, pageId, index, author) {
   return {
     id: createShapeId(),
     typeName: 'shape',
@@ -78,7 +78,9 @@ function geoRecord(spec, pageId, index) {
         typeof spec.label === 'string' ? spec.label.slice(0, MAX_LABEL_LEN) : ''
       ),
     },
-    meta: {},
+    // author is frozen at creation: it marks who DREW this shape (e.g. "ren").
+    // If a human later moves/resizes it, the mark doesn't change hands.
+    meta: author ? { author: String(author) } : {},
   }
 }
 
@@ -103,34 +105,27 @@ function baseStore() {
   }
 }
 
-// Add shapes to a tldraw document. Read-modify-write: existing shapes are
-// preserved; new shapes are appended above them. Returns the new document plus a
-// digest (the agent's self-check — what was actually stored, by type/label/pos).
-//
-// `document` is the stored {store, schema} snapshot, or null/undefined for a
-// sketch that's never been opened.
-export function drawShapes(document, specs) {
+function validateSpecs(specs) {
   if (!Array.isArray(specs) || specs.length === 0) {
     throw new Error('shapes must be a non-empty array of specs')
   }
   if (specs.length > MAX_SHAPES_PER_CALL) {
     throw new Error(`too many shapes in one call (max ${MAX_SHAPES_PER_CALL})`)
   }
+}
 
-  const doc = document && typeof document === 'object' ? document : null
-  const store =
-    doc?.store && typeof doc.store === 'object' ? { ...doc.store } : baseStore()
-  const schema = doc?.schema || createTLSchema().serialize()
+// Build genuine tldraw geo records for `specs`, WITHOUT mutating anything.
+// `store` is the existing records map (from a blob doc OR a live room snapshot) —
+// used only to find the target page and the highest existing fractional index so
+// new shapes append above the rest. `author` is stamped into each record's meta.
+// Returns { records, digest, pageId }. This is the shared core used by both the
+// blob path (drawShapes) and the live-room path (agent route), so a shape an
+// agent draws is byte-identical whether it lands in Postgres or the live room.
+export function buildRecords(store, specs, author = '') {
+  validateSpecs(specs)
 
-  // Attach to the first page in the store (default the base page if none).
   let pageId = Object.keys(store).find((k) => store[k]?.typeName === 'page')
-  if (!pageId) {
-    pageId = 'page:page'
-    store[pageId] = baseStore()['page:page']
-  }
-  if (!store['document:document']) {
-    store['document:document'] = baseStore()['document:document']
-  }
+  if (!pageId) pageId = 'page:page'
 
   // Highest existing index on that page. Fractional indices sort
   // lexicographically, so string comparison is the correct ordering.
@@ -146,11 +141,12 @@ export function drawShapes(document, specs) {
     }
   }
 
+  const records = []
   const digest = []
   for (const spec of specs) {
     maxIndex = getIndexAbove(maxIndex)
-    const rec = geoRecord(spec, pageId, maxIndex)
-    store[rec.id] = rec
+    const rec = geoRecord(spec, pageId, maxIndex, author)
+    records.push(rec)
     digest.push({
       id: rec.id,
       type: rec.props.geo,
@@ -160,8 +156,34 @@ export function drawShapes(document, specs) {
       w: rec.props.w,
       h: rec.props.h,
       color: rec.props.color,
+      author: author ? String(author) : undefined,
     })
   }
+  return { records, digest, pageId }
+}
+
+// Add shapes to a tldraw document (the BLOB path). Read-modify-write: existing
+// shapes are preserved; new shapes are appended above them. Returns the new
+// document plus a digest. `document` is the stored {store, schema} snapshot, or
+// null/undefined for a sketch that's never been opened. `author` marks who drew.
+export function drawShapes(document, specs, author = '') {
+  validateSpecs(specs)
+
+  const doc = document && typeof document === 'object' ? document : null
+  const store =
+    doc?.store && typeof doc.store === 'object' ? { ...doc.store } : baseStore()
+  const schema = doc?.schema || createTLSchema().serialize()
+
+  // Ensure the two base records exist before we attach shapes.
+  if (!Object.keys(store).some((k) => store[k]?.typeName === 'page')) {
+    store['page:page'] = baseStore()['page:page']
+  }
+  if (!store['document:document']) {
+    store['document:document'] = baseStore()['document:document']
+  }
+
+  const { records, digest, pageId } = buildRecords(store, specs, author)
+  for (const rec of records) store[rec.id] = rec
 
   const shapeCount = Object.values(store).filter(
     (r) => r?.typeName === 'shape'

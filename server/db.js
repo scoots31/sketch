@@ -16,7 +16,15 @@ export const pool = new Pool({
   ssl: isRemote ? { rejectUnauthorized: false } : false,
 })
 
+// Test-only fault injection for the gate harness (scripts/gate-durability.mjs):
+// when failNext > 0, the next N queries reject. Never set in production code.
+export const _testFaults = { failNext: 0 }
+
 export function query(text, params) {
+  if (_testFaults.failNext > 0) {
+    _testFaults.failNext--
+    return Promise.reject(new Error('injected fault (gate harness)'))
+  }
   return pool.query(text, params)
 }
 

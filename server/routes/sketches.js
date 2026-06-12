@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { query } from '../db.js'
+import { getActiveRoom } from '../rooms.js'
 
 // Human-facing sketch API. Open for v1 (single owner); agent auth layers on later.
 // Save is an UPDATE to the same record every time — a sketch accumulates, never forks.
@@ -49,12 +50,26 @@ sketches.get('/:id', async (req, res, next) => {
   }
 })
 
-// Save — overwrite the document snapshot, bump updated_at. The heartbeat.
+// Save — overwrite the document snapshot, bump updated_at. The blob world's
+// legitimate save; the sync client never calls it. Guarded (gate work,
+// 2026-06-11): while a live room is resident the room is the authority — a
+// whole-document save here would be silently overwritten by the room's next
+// flush AND could erase live participants' work (the F1 clobber seam).
 sketches.put('/:id/document', async (req, res, next) => {
   try {
     const { document } = req.body || {}
     if (document === undefined) {
       return res.status(400).json({ error: 'missing document' })
+    }
+    if (getActiveRoom(req.params.id)) {
+      return res.status(409).json({
+        applied: false,
+        error: 'live room active',
+        message:
+          'This sketch is open live right now; the live room is the authority ' +
+          'for its contents. A whole-document save would be overwritten and ' +
+          'could erase live work. Edit through a connected canvas instead.',
+      })
     }
     const { rows } = await query(
       `UPDATE sketches
