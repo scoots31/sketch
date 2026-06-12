@@ -111,8 +111,24 @@ export async function getOrCreateRoom(sketchId) {
 
   // Seed from the durable blob. loadSnapshot accepts {store, schema} directly.
   // A never-opened sketch (null document) just starts empty.
-  if (rows[0].document) {
-    room.loadSnapshot(rows[0].document)
+  //
+  // Legacy unwrap (2026-06-11, found live): blob-world client autosaves stored
+  // the FULL editor snapshot — {session, document: {store, schema}} — not the
+  // bare {store, schema}. Seeding that wrapper loads nothing, the room opens
+  // empty, and its first flush overwrites the blob: silent wipe of every
+  // pre-room sketch on first open. Unwrap before seeding; refuse to seed any
+  // shape we don't recognize rather than guess (an unseeded room would wipe).
+  const blob = rows[0].document
+  const snapshot = blob?.store ? blob : blob?.document?.store ? blob.document : null
+  if (blob && !snapshot) {
+    rooms.delete(sketchId)
+    throw new Error(
+      `sketch ${sketchId} has a stored document in an unrecognized format — ` +
+      'refusing to open it live, because seeding it empty would overwrite it'
+    )
+  }
+  if (snapshot) {
+    room.loadSnapshot(snapshot)
   }
 
   return room
