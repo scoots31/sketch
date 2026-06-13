@@ -9,7 +9,7 @@ import { initSchema } from './db.js'
 import { sketches } from './routes/sketches.js'
 import { agent } from './routes/agent.js'
 import { handleSocketConnection } from './rooms.js'
-import { addClient } from './notify.js'
+import { addClient, broadcastDrawEvent } from './notify.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
