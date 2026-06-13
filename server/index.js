@@ -9,6 +9,7 @@ import { initSchema } from './db.js'
 import { sketches } from './routes/sketches.js'
 import { agent } from './routes/agent.js'
 import { handleSocketConnection } from './rooms.js'
+import { addClient } from './notify.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -18,6 +19,16 @@ app.use(express.json({ limit: '10mb', verify: (req, _res, buf) => { req.rawBody 
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
 app.use('/api/sketches', sketches) // human/browser — open for v1
 app.use('/api/agent', agent) // agents — shared-secret auth required
+
+// SSE draw-event notifications — canvas subscribes here for agent-draw feedback.
+app.get('/api/notify/:sketchId', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+  res.flushHeaders()
+  const remove = addClient(req.params.sketchId, res)
+  req.on('close', remove)
+})
 
 // In production the same service serves the built client (single Render web service).
 const dist = join(__dirname, '..', 'dist')

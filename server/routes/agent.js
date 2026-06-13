@@ -3,6 +3,7 @@ import { query } from '../db.js'
 import { requireAgentAuth } from '../auth.js'
 import { drawShapes } from '../shapes.js'
 import { getActiveRoom, applyLiveDraw, LiveDrawRollback } from '../rooms.js'
+import { broadcastDrawEvent } from '../notify.js'
 
 // Agent-facing API. Every route requires shared-secret auth and respects the
 // privacy flag: agents see and touch non-private sketches only ("watch
@@ -130,6 +131,10 @@ agent.post('/sketches/:id/draw', async (req, res, next) => {
         result = await applyLiveDraw(req.params.id, specs, author)
       } catch (e) {
         if (e instanceof LiveDrawRollback) {
+          broadcastDrawEvent(req.params.id, 'draw-failed', {
+            message: e.message,
+            by: req.agentId,
+          })
           return res.status(500).json({
             applied: false,
             rolled_back: true,

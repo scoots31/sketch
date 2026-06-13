@@ -1,7 +1,7 @@
 import { Tldraw, useEditor, useValue } from 'tldraw'
 import 'tldraw/tldraw.css'
 import { useSync } from '@tldraw/sync'
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 
 // One sketch open on the canvas — multiplayer. useSync holds a live WebSocket to
 // this sketch's room; concurrent edits merge conflict-free and persist server-side.
@@ -100,8 +100,32 @@ export default function SketchCanvas({ id, name, onBack }) {
 
   const store = useSync({ uri, assets })
 
+  const [drawToast, setDrawToast] = useState(null)
+  useEffect(() => {
+    const es = new EventSource(`/api/notify/${id}`)
+    es.addEventListener('draw-failed', (e) => {
+      const data = JSON.parse(e.data)
+      setDrawToast(data.message || 'The drawing did not save.')
+      const t = setTimeout(() => setDrawToast(null), 5000)
+      return () => clearTimeout(t)
+    })
+    return () => es.close()
+  }, [id])
+
   return (
     <div style={{ position: 'fixed', inset: 0 }}>
+      {drawToast && (
+        <div style={{
+          position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 9999, background: '#1e293b', color: '#f8fafc',
+          padding: '10px 18px', borderRadius: 8,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
+          fontFamily: 'system-ui, sans-serif', fontSize: 13, lineHeight: 1.5,
+          maxWidth: 380, textAlign: 'center', pointerEvents: 'none',
+        }}>
+          {drawToast}
+        </div>
+      )}
       <div
         style={{
           position: 'absolute', top: 8, left: 8, zIndex: 1000,
